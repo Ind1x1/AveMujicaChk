@@ -7,8 +7,8 @@ import sys
 import torch.distributed as dist
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_path)
-from MujicaChk.engine.dspeed import DeepSpeedCheckpointer
-from MujicaChk.utils import env_utils
+from AveMujicaChk.engine.dspeed import DeepSpeedCheckpointer
+from AveMujicaChk.utils import env_utils
 
 # 定义一个简单的模型
 class SimpleModel(nn.Module):
@@ -40,7 +40,7 @@ def main():
             "min_loss_scale": 1
         },
         "zero_optimization": {
-            "stage": 2,
+            "stage": 3,
             "allgather_partitions": True,
             "allgather_bucket_size": 5e8,
             "reduce_scatter": True,

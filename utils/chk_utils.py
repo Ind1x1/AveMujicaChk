@@ -13,8 +13,8 @@ from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import torch
 
-from MujicaChk.common.multi_process import SharedMemory
-from MujicaChk.utils.log import default_logger as logger
+from AveMujicaChk.common.multi_process import SharedMemory
+from AveMujicaChk.utils.log import default_logger as logger
 
 @dataclass
 class TensorMeta:

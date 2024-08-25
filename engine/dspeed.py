@@ -7,14 +7,15 @@ import torch.distributed as dist
 from deepspeed.runtime.engine import DeepSpeedEngine
 from deepspeed.runtime.zero.config import ZeroStageEnum
 
-from MujicaChk.engine.checkpointer import Checkpointer
-from MujicaChk.engine.dspeed_engine import DeepSpeedCheckpointEngine
-from MujicaChk.engine.shmengine import SharedMemoryObjectPrefix
+from AveMujicaChk.engine.checkpointer import Checkpointer
+from AveMujicaChk.engine.dspeed_engine import DeepSpeedCheckpointEngine
+from AveMujicaChk.engine.net_engine import DeepSpeedCheckpointNETEngine
+from AveMujicaChk.engine.shmengine import SharedMemoryObjectPrefix
 
-from MujicaChk.utils import env_utils
-from MujicaChk.utils.log import default_logger as log
+from AveMujicaChk.utils import env_utils
+from AveMujicaChk.utils.log import default_logger as log
 
-from MujicaChk.common.constants import CheckpointConstant
+from AveMujicaChk.common.constants import CheckpointConstant
 
 
 torch_native_save = torch.save
@@ -22,7 +23,7 @@ torch_native_load = torch.load
 
 class DeepSpeedCheckpointer(Checkpointer):
     """
-    MujicaChk checkpointer saves and load model
+    AveMujicaChk checkpointer saves and load model
 
     Examples::
         >>> model, optimizer, _, lr_scheduler = deepspeed.initialize(...)
@@ -130,3 +131,32 @@ class DeepSpeedCheckpointer(Checkpointer):
             self.dscheckpointengine._shm_handler.unlink()
             log.info(f"{self._local_rank} unlink the shared memory")
         return load_path, client_states
+    
+
+class DeepSpeedNECheckpointer(Checkpointer):
+    """
+    AveMujicaChk checkpointer saves and load model
+
+    Examples::
+        >>> model, optimizer, _, lr_scheduler = deepspeed.initialize(...)
+        >>> MujicaCheckpointer = DeepSpeedCheckpointer(engine, save_dir) 
+        >>> if args.save_model_step is not None and global_step % args.save_model_step == 0:
+        >>>     MujicaCheckpointer.save_checkpoint(tag)
+
+    Version1.0 we test in ZeRO-1 and ZeRO-2    
+    """
+    def __init__(
+        self,
+        engine: DeepSpeedEngine,
+        checkpoint_dir,
+        comm_backend = "",
+        #deletion_strategy=None,
+        save_timeout = CheckpointConstant.SAVE_TIMEOUT,
+    ):
+        
+        self.netcheckpointengine = DeepSpeedCheckpointNETEngine(
+            engine,
+            checkpoint_dir,
+            comm_backend,
+            save_timeout
+        )

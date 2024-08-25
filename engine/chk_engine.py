@@ -5,33 +5,33 @@ from datetime import timedelta
 from multiprocessing import Process
 from typing import Dict, List, Optional
 
-from MujicaChk.engine.shmengine import (
+from AveMujicaChk.engine.shmengine import (
     MUJICA_CKPT_CONFIG_KEY,
     SharedMemoryEngine,
     CheckpointConfig,
     SharedMemoryObjectPrefix
 )
 
-from MujicaChk.utils.env_utils import(
+from AveMujicaChk.utils.env_utils import(
     get_local_rank,
     get_group_rank,
 )
-from MujicaChk.utils.time_utils import (
+from AveMujicaChk.utils.time_utils import (
     cuda_timer,
     timer
 )
 
 
 from multiprocessing import shared_memory
-from MujicaChk.common.constants import CheckpointConstant,CheckpointMetaKey
-from MujicaChk.utils.chk_utils import TensorMeta
-from MujicaChk.utils.log import default_logger as log
-from MujicaChk.utils import env_utils
+from AveMujicaChk.common.constants import CheckpointConstant,CheckpointMetaKey
+from AveMujicaChk.utils.chk_utils import TensorMeta
+from AveMujicaChk.utils.log import default_logger as log
+from AveMujicaChk.utils import env_utils
 
 import torch
 import torch.distributed as dist
 
-from MujicaChk.common.singleton import Singleton
+from AveMujicaChk.common.singleton import Singleton
 
 def _local_rank0_log(local_rank, message):
     if local_rank == 0:

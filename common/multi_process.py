@@ -13,7 +13,7 @@ from typing import Dict
 
 import _posixshmem
 
-DEFAULT_TMP_DIR = "/tmp/mujicachk_sock/"
+DEFAULT_TMP_DIR = "/tmp/AveMujicaChk_sock/"
 
 SUCCESS_CODE = "OK"
 ERROR_CODE = "ERROR"

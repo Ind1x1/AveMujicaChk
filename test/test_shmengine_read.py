@@ -7,7 +7,7 @@ import sys
 from deepspeed.runtime.zero.parameter_offload import DeepSpeedZeRoOffload
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_path)
-from MujicaChk.engine.shmengine import SharedMemoryEngine
+from AveMujicaChk.engine.shmengine import SharedMemoryEngine
 
 def main():
     model_state_path = "./outputtest/global_step2/mp_rank_00_model_states.pt"

@@ -1,6 +1,6 @@
 import os
 
-#from MujicaChk.common.constants import NodeEnvConstant
+#from AveMujicaChk.common.constants import NodeEnvConstant
 
 def get_local_world_size():
     """Get the local world size."""

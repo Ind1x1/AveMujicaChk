@@ -1,23 +1,23 @@
 import copy
 from typing import Dict
-from MujicaChk.utils import env_utils
-from MujicaChk.engine.chk_engine import CheckpointEngine
-from MujicaChk.common.constants import CheckpointConstant, CheckpointMetaKey
-from MujicaChk.engine.checkpointer import Checkpointer
-from MujicaChk.utils.log import default_logger as log
-from MujicaChk.engine.shmengine import (
+from AveMujicaChk.utils import env_utils
+from AveMujicaChk.engine.chk_engine import CheckpointEngine
+from AveMujicaChk.common.constants import CheckpointConstant, CheckpointMetaKey
+from AveMujicaChk.engine.checkpointer import Checkpointer
+from AveMujicaChk.utils.log import default_logger as log
+from AveMujicaChk.engine.shmengine import (
     MUJICA_CKPT_CONFIG_KEY,
     SharedMemoryEngine,
     CheckpointConfig,
     SharedMemoryObjectPrefix
 )
 
-from MujicaChk.utils.time_utils import (
+from AveMujicaChk.utils.time_utils import (
     cuda_timer,
     timer
 )
 
-from MujicaChk.engine.shmengine import (
+from AveMujicaChk.engine.shmengine import (
     MUJICA_CKPT_CONFIG_KEY,
     SharedMemoryEngine,
     CheckpointConfig,

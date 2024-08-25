@@ -10,8 +10,8 @@ import traceback
 import multiprocessing
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_path)
-from MujicaChk.engine.dspeed import DeepSpeedCheckpointer
-from MujicaChk.utils import env_utils
+from AveMujicaChk.engine.dspeed import DeepSpeedCheckpointer
+from AveMujicaChk.utils import env_utils
 # 定义一个简单的模型
 class SimpleModel(nn.Module):
     def __init__(self):
@@ -72,7 +72,7 @@ def main():
             "min_loss_scale": 1
         },
         "zero_optimization": {
-            "stage": 2,
+            "stage": 3,
             "allgather_partitions": True,
             "allgather_bucket_size": 5e8,
             "reduce_scatter": True,
@@ -99,14 +99,27 @@ def main():
     # 初始化模型、优化器和DeepSpeed引擎
     model = SimpleModel().cuda()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
+    
     model_engine, optimizer, _, _ = deepspeed.initialize(
         args=None,
         model=model,
         optimizer=optimizer,
         config=ds_config
     )
+    # 获取数据并行进程组
+    # dp_process_group = model_engine.optimizer.dp_process_group
 
+    # if dp_process_group is not None:
+    # # 打印出进程组的world size（组中有多少个rank）
+    #     dp_world_size = torch.distributed.get_world_size(group=dp_process_group)
+    #     print(f"Data Parallel Process Group World Size: {dp_world_size}")
+
+    #     # 打印出进程组中每个rank的id
+    #     # 注意，这里你需要在每个进程中打印自己的rank，而不是循环dp_world_size次
+    #     dp_rank = torch.distributed.get_rank(group=dp_process_group)
+    #     print(f"Rank in Data Parallel Process Group: {dp_rank}")
+    # else:
+    #     print("Data Parallel Process Group is None")
     # 创建一些示例数据，并转换为FP16精度
     inputs = torch.randn(8, 10, device='cuda', dtype=torch.half)  # 推荐的方式
     labels = torch.randn(8, 10, device='cuda', dtype=torch.half)  # 推荐的方式
@@ -128,7 +141,9 @@ def main():
         print(f"optimizer --<> \n {state_dict}")
         state_dict = model_engine.state_dict()
         print(f"model --<> \n {state_dict}")
+        
         MujicaCheckpointer.save_checkpoint("./outputtest")
+        
         # model_engine.save_checkpoint("./outputtest")
 
     # 执行一个训练步骤
