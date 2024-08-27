@@ -14,6 +14,9 @@ from AveMujicaChk.utils import env_utils
 from AveMujicaChk.engine.chk_engine import CheckpointEngine
 from AveMujicaChk.common.constants import CheckpointConstant, CheckpointMetaKey
 from AveMujicaChk.utils.log import default_logger as log
+from AveMujicaChk.utils.chk_utils import(
+    _traverse_state_dict,
+)
 from AveMujicaChk.utils.net_utils import(
     _flatten_dense_tensors,
     _unflatten_dense_tensors,
@@ -89,7 +92,7 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
 
         self.global_rank = self.engine.global_rank
         self.world_size = self.engine.world_size
-
+        
         self.dp_rank = self.global_rank // self.global_shard_num
         self.dp_num = self.world_size // self.global_shard_num
 
@@ -97,6 +100,7 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
             self.engine.save_non_zero_checkpoint = True
 
         self.comm_group = None
+        self._exchange_rank = 0
 
         # Use torch (un)flatten ops
         self.flatten = _flatten_dense_tensors
@@ -139,29 +143,89 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
         _local_rank0_log(self._local_rank, message)  
         return _exchange_rank
     
+    # inter test code
+    def _get_inter_comm_rank(self):
+        """
+        Create a communication group for communicating between the same rank in different data parallel (dp) groups.
+
+        Use environment variables to determine rank information.
+
+        return:
+           dis rank
+        """
+
+        # _group = self.global_rank // (2 * self.global_shard_num)
+        if self.world_size % 2 == 0:
+            message = (
+                    f"The number of data parallel groups meets the group policy condition"
+                    f"Check points are saved using group policy"
+                )
+            _exchange_rank = self._local_rank + (1 if self._local_rank % 2 == 0 else -1)
+        else: 
+            message = (
+                    f"The number of data parallel groups does not meet the group policy condition"
+                    f"Check points are saved using group policy and ring policy"
+                )
+            if self._local_rank < self.global_shard_num - 3:
+                _exchange_rank = self._local_rank + (1 if self._local_rank % 2 == 0 else -1)
+            elif self._local_rank == self.global_shard_num - 1:
+                _exchange_rank = self._local_rank - 2 
+            elif self._local_rank == self.global_shard_num - 2:
+                _exchange_rank = self._local_rank + 1
+            elif self._local_rank == self.global_shard_num - 3:
+                _exchange_rank = self._local_rank + 1
+        _local_rank0_log(self._local_rank, message)  
+        return _exchange_rank
+    
+    # inter test code
+    def _create_inter_communication_group(self):
+        _exchange_rank = self._get_inter_comm_rank()
+        print(f"self.global_rank {self.global_rank} -->{_exchange_rank}")
+        ranks = sorted([self.global_rank, _exchange_rank])
+        comm_group = dist.new_group(ranks = ranks)
+        print(f"comm_group {comm_group}")
+        self.comm_group = comm_group
+        self._exchange_rank = _exchange_rank
+        return True
+
     def _create_communication_group(self):
         _exchange_rank = self._get_group_comm_rank
         ranks = sorted([self.global_rank, _exchange_rank])
         comm_group = dist.new_group(ranks = ranks)
-
-        return comm_group
+        self.comm_group = comm_group
+        self._exchange_rank = _exchange_rank
+        return True
     
     def exchange_bucket(self, bucket, process_group = None):
         tensor = self.flatten(bucket)
-
+        process_group = self.dp_process_group if process_group is None else process_group
+        tensor_to_exchange = tensor
+        dist.barrier(group=process_group)
+        torch.cuda.synchronize()
+        gather_list = [torch.zeros_like(tensor) for _ in range(2)]
+        torch.cuda.synchronize()
+        dist.barrier(group=process_group)
+        dist.all_gather(gather_list, tensor_to_exchange, group=process_group)
+        opposite_rank_tensor = gather_list[1 if self.global_rank < self._exchange_rank else 0]
+        return opposite_rank_tensor
+    
+    # inter change tensor
+    def exchange_tensor(self, tensor, process_group = None):
+        
         process_group = self.dp_process_group if process_group is None else process_group
 
         tensor_to_exchange = tensor
 
-        rank = dist.get_rank(group=process_group)
-        world_size = dist.get_world_size(group=process_group)
-
-        gather_list = [torch.zeros_like(tensor) for _ in range(world_size)]
+        dist.barrier(group=process_group)
+        torch.cuda.synchronize()
+        
+        # world_size = dist.get_world_size(group=process_group)
+        gather_list = [torch.zeros_like(tensor) for _ in range(2)]
         dist.all_gather(gather_list, tensor_to_exchange, group=process_group)
-
-        peer_rank = (rank + 1) % world_size if world_size == 2 else 1  
-        opposite_rank_tensor = gather_list[0 if rank == peer_rank else 1]
-
+    
+        #print(f" rank {self.global_rank} --> {self._exchange_rank}")
+        opposite_rank_tensor = gather_list[1 if self.global_rank < self._exchange_rank else 0]
+        # print(f" rank {self.global_rank} --<> {opposite_rank_tensor}")
         return opposite_rank_tensor
     
     def exchange_with_multiple_ranks(
@@ -177,6 +241,8 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
                 buf.copy_(synced)
 
     def exchange_state_dict(self, bucket, numel_per_bucket = 500000000, process_group = None):
+        
+        
         small_bucket = []
         small_bucket_ranks = []
         numel = 0
@@ -218,44 +284,53 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
                 if dist.get_rank(group=process_group) == bucket_rank:
                     buf.copy_(synced)
 
-    def _exchange_state_dict(self, module, state_dict, process_group, prefix=""):
+    def _exchange_state_dict(self, state_dict, process_group):
         """
         Recursively exchanges the state_dict between two ranks within the given process group,
         ensuring parameters are exchanged layer-by-layer.
 
         Args:
-            module (torch.nn.Module): The model or submodule to exchange parameters for.
             state_dict (dict): The state_dict to exchange.
             process_group: The process group which contains exactly two ranks.
-            prefix (str): Prefix for the current module, used to construct full parameter names.
+            
         """
-        assert dist.get_world_size(group=process_group) == 2, "Process group must have exactly 2 ranks."
+        # assert dist.get_world_size(group=process_group) == 2, "Process group must have exactly 2 ranks."
 
-        current_rank = dist.get_rank(group=process_group)
-        peer_rank = 1 - current_rank 
+        # small_bucket = []
+        # bucket_ranks = []
 
-        small_bucket = []
-        bucket_ranks = []
+        # for name, param in module.named_parameters(recurse=False):
+        #     if param is None:
+        #         continue
 
-        for name, param in module.named_parameters(recurse=False):
-            if param is None:
-                continue
+        #     key = prefix + name
+        #     tensor = state_dict[key]
 
-            key = prefix + name
-            tensor = state_dict[key]
+        #     small_bucket.append(tensor)
+        #     bucket_ranks.append(peer_rank)
 
-            small_bucket.append(tensor)
-            bucket_ranks.append(peer_rank)
+        #     if len(small_bucket) > 0:
+        #         self.exchange_and_copy(small_bucket, process_group=process_group, bucket_ranks=bucket_ranks)
 
-            if len(small_bucket) > 0:
-                self.exchange_and_copy(small_bucket, process_group=process_group, bucket_ranks=bucket_ranks)
+        #         small_bucket = []
+        #         bucket_ranks = []
 
-                small_bucket = []
-                bucket_ranks = []
+        # for name, child in module.named_children():
+        #     if child is not None:
+        #         self._exchange_state_dict(child, state_dict, process_group, prefix=prefix + name + ".")
 
-        for name, child in module.named_children():
-            if child is not None:
-                self._exchange_state_dict(child, state_dict, process_group, prefix=prefix + name + ".")
+        # if len(small_bucket) > 0:
+        #     self.exchange_and_copy(small_bucket, process_group=process_group, bucket_ranks=bucket_ranks)
+        pass
 
-        if len(small_bucket) > 0:
-            self.exchange_and_copy(small_bucket, process_group=process_group, bucket_ranks=bucket_ranks)
+    def get_remote_save_state_dict(self, state_dict):
+        if self.engine.optimier.overlap_comm:
+            if not get_accelerator().resolves_data_dependency():
+                get_accelerator().synchronize()
+            self._clear_previous_reduced_grads()
+            stream = self.engine.optimier.reduction_stream
+        else:
+            stream = get_accelerator().current_stream()
+        
+        with get_accelerator().stream(stream):
+            small_bucket = {}

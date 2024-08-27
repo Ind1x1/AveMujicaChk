@@ -119,7 +119,7 @@ class CheckpointEngine(metaclass=ABCMeta):
 
         self._local_rank = env_utils.get_local_rank() # IMPORTANT 本地rank
         self._world_size = 1
-        self._local_size = 1
+        #self._local_size = 1
         # 
        
         self._saving_ranks: Optional[List[int]] = None

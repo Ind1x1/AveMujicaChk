@@ -11,11 +11,9 @@ from deepspeed.runtime.zero.parameter_offload import DeepSpeedZeRoOffload
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_path)
 
-from AveMujicaChk.engine.net_engine import DeepSpeedCheckpointNETEngine
 from AveMujicaChk.engine.dspeed import DeepSpeedCheckpointer
 from AveMujicaChk.utils import env_utils
 
-# 定义一个简单的模型
 # 定义一个简单的两层模型
 class SimpleModel(nn.Module):
     def __init__(self):
@@ -32,7 +30,6 @@ class SimpleModel(nn.Module):
 
 def setup_distributed():
     """初始化分布式环境和GPU设备。"""
-    os.environ['MASTER_PORT'] = '29510'
     local_rank = int(os.environ['LOCAL_RANK'])
     torch.cuda.set_device(local_rank)
     deepspeed.init_distributed()
@@ -43,7 +40,7 @@ def main():
 
     # 配置DeepSpeed
     ds_config = {
-        "train_batch_size":4,
+        "train_batch_size": 8,
         "gradient_accumulation_steps": 1,
         "fp16": {
             "enabled": True,
@@ -75,6 +72,9 @@ def main():
                 "warmup_num_steps": 100
             }
         },
+        "data_parallel_size": 4,
+        "tensor_parallel_size": 1,
+        "pipeline_parallel_size": 1
     }
 
     # 初始化模型、优化器和DeepSpeed引擎
@@ -89,64 +89,37 @@ def main():
     )
 
     # 获取数据并行进程组
-    # dp_process_group = model_engine.optimizer.dp_process_group
+    dp_process_group = model_engine.optimizer.dp_process_group
     
-    # if dp_process_group is not None:
-    #     # 打印出进程组的world size（组中有多少个rank）
-    #     dp_world_size = torch.distributed.get_world_size(group=dp_process_group)
-    #     print(f"Data Parallel Process Group World Size: {dp_world_size}")
+    if dp_process_group is not None:
+        dp_world_size = torch.distributed.get_world_size(group=dp_process_group)
+        print(f"Data Parallel Process Group World Size: {dp_world_size}")
 
-    #     # 打印出进程组中每个rank的id
-    #     dp_rank = torch.distributed.get_rank(group=dp_process_group)
-    #     print(f"Rank in Data Parallel Process Group: {dp_rank}")
-    # else:
-    #     print("Data Parallel Process Group is None")
-
-    # 创建每个 rank 的独立张量
-    rank = torch.distributed.get_rank()
-    tensor_length = 100  # 假设我们使用长度为100的张量
-    tensor_to_exchange = torch.full((tensor_length,), rank, device='cuda', dtype=torch.float)
-
+        dp_rank = torch.distributed.get_rank(group=dp_process_group)
+        print(f"Rank in Data Parallel Process Group: {dp_rank}")
+    else:
+        print("Data Parallel Process Group is None")
 
     # 创建一些示例数据，并转换为FP16精度
     inputs = torch.randn(8, 10, device='cuda', dtype=torch.half)
     labels = torch.randn(8, 10, device='cuda', dtype=torch.half)
 
-    Avecheck = DeepSpeedCheckpointNETEngine(model_engine, "./outputtest")
-    Avecheck._create_inter_communication_group()
-    
-    torch.distributed.barrier()
-    torch.cuda.synchronize()
-
-    exchanged_tensor = Avecheck.exchange_tensor(tensor_to_exchange, process_group=Avecheck.comm_group)
-
-    print(f"Rank {rank} received tensor: {exchanged_tensor}")
-
-    # 再次同步，确保所有进程完成操作
-    torch.cuda.synchronize()
-    torch.distributed.barrier()
     # 初始化DeepSpeed检查点管理器
-    # MujicaCheckpointer = DeepSpeedCheckpointer(model_engine, "./outputtest")
+    MujicaCheckpointer = DeepSpeedCheckpointer(model_engine, "./outputtest")
 
     # 进行训练
-    # for step in range(2):
-    #     # 执行一个训练步骤
-    #     outputs = model_engine(inputs)
-    #     loss = nn.MSELoss()(outputs, labels)
-        
-    #     # 确保损失也转换为FP16精度
-    #     loss = loss.half()
+    for step in range(2):
+        outputs = model_engine(inputs)
+        loss = nn.MSELoss()(outputs, labels)
+        loss = loss.half()
+        model_engine.backward(loss)
+        model_engine.step()
 
-    #     # 执行反向传播
-    #     model_engine.backward(loss)
-    #     model_engine.step()
+        optimizer_state_dict = model_engine.optimizer.state_dict()
+        print(f"Optimizer state dict:\n{optimizer_state_dict}")
 
-        # 打印优化器和模型的状态字典
-        # optimizer_state_dict = model_engine.optimizer.state_dict()
-        # print(f"Optimizer state dict:\n{optimizer_state_dict}")
-
-        # model_state_dict = model_engine.state_dict()
-        # print(f"Model state dict:\n{model_state_dict}")
+        model_state_dict = model_engine.state_dict()
+        print(f"Model state dict:\n{model_state_dict}")
         
         # 可选：保存检查点
         # MujicaCheckpointer.save_checkpoint("./outputtest")
