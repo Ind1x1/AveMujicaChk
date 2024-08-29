@@ -160,3 +160,21 @@ class DeepSpeedNECheckpointer(Checkpointer):
             comm_backend,
             save_timeout
         )
+
+    def save_checkpoint(
+        self, save_dir, tag=None, client_state={}, save_latest=True
+    ):
+        log.info(f"{self._local_rank} Saving Shared Memory Checkpoint")
+        torch.save = self.netcheckpointengine._save_remote_state_dict
+        self.engine.save_checkpoint(save_dir, tag, client_state, save_latest)
+        torch.save = torch_native_save
+        self.netcheckpointengine.save_checkpoint(
+            self.engine.global_steps,
+            self.netcheckpointengine.state_dict,
+            self.netcheckpointengine.paths,
+        )
+        
+    def load_checkpoint(self, resuming_path=None):
+        return super().load_checkpoint(resuming_path)
+        pass
+    
