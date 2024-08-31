@@ -208,7 +208,7 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
        
         tensor = self.flatten(bucket)
        
-        process_group = self.dp_process_group if process_group is None else process_group
+        process_group = self.comm_group if process_group is None else process_group
         
         tensor_to_exchange = tensor
        
@@ -223,6 +223,27 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
         opposite_rank_tensor = gather_list[1 if self.global_rank < self._exchange_rank else 0]
         
         return opposite_rank_tensor
+    
+    def _move_state_dict_to_device(self, state_dict, rank):
+        """
+        将 state_dict 中所有的张量转移到指定 rank 对应的 GPU 设备上。
+
+        Args:
+            state_dict (dict): 包含模型参数的字典。
+            rank (int): 指定的 rank 值，决定目标 GPU 设备。
+
+        Returns:
+            dict: 已转移到相应 GPU 设备的 state_dict。
+        """
+        device = f'cuda:{rank}'  
+        
+        for key, value in state_dict.items():
+            if isinstance(value, torch.Tensor):  
+                state_dict[key] = value.to(device)  
+            elif isinstance(value, dict):  
+                state_dict[key] = self._move_state_dict_to_device(value, rank)
+        
+        return state_dict
     
     # inter change tensor
     # def exchange_tensor(self, tensor, process_group = None):
@@ -368,7 +389,19 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
         recursive_extract(state_dict, bucket)
         self.bucket = bucket
         return bucket
-    
+
+    def _restore_bucket_state_dict(self):
+        def recursive_restore(current_dict, current_bucket):
+            for key, value in current_bucket.items():
+                if isinstance(value, dict):
+                    recursive_restore(current_dict[key], value)
+                else:
+                    current_dict[key] = value
+
+        recursive_restore(self.state_dict, self.bucket)
+        self.bucket = None
+
+
     def _small_bucket_exchange_state_dict(self, bucket, numel_per_bucket = 500000000, process_group = None):
         
         small_bucket = []
@@ -404,14 +437,13 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
             process_group = None,
             bucket_ranks = None,
     ):
-        process_group = self.dp_process_group if process_group is None else process_group
+        process_group = self.comm_group if process_group is None else process_group
         allreduced = self.exchange_bucket(small_bucket, process_group=process_group)
         for buf, synced in zip(small_bucket, self.unflatten(allreduced, small_bucket)):
             buf.copy_(synced)
 
     
-
-    # save and load method level 1
+    # save method level 
     def _save_remote_state_dict(self, state_dict, path: str):
         """
         state_dict: 
@@ -436,14 +468,26 @@ class DeepSpeedCheckpointNETEngine(CheckpointEngine):
         if sd_name:
             self.state_dict[sd_name] = state_dict
             self.paths[sd_name] = path
-
-    def save_checkpoint(self, step, state_dict, paths):
-        pass
     
-    # save and load method level 0
     @timer
+    def save_checkpoint(self, step, state_dict, paths):
+        self.get_remote_save_state_dict(state_dict)
+        self._restore_bucket_state_dict()
+        print(self.state_dict)
+        self.save_to_memory(step, state_dict, paths)
+    
+    # save method level 
     def save_to_memory(self, step, state_dict, paths):
         conf = CheckpointConfig(step=step, paths=paths)
         success = self.save_state_dict_to_memory(state_dict, conf)
         return success
     
+    # load method level
+    def load_from_memory(self):
+        self.state_dict = self.get_state_dict_from_memory(self._shm_handler.meta_dict)
+        self.state_dict = self._move_state_dict_to_device(self.state_dict, self._local_rank)
+        self.get_remote_save_state_dict(self.state_dict)
+        self._restore_bucket_state_dict()
+        print(f"rank load {self.state_dict}")
+        self._shm_handler.unlink()
+        

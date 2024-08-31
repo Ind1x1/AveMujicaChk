@@ -12,7 +12,7 @@ project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 sys.path.insert(0, project_path)
 
 from AveMujicaChk.engine.net_engine import DeepSpeedCheckpointNETEngine
-from AveMujicaChk.engine.dspeed import DeepSpeedCheckpointer
+from AveMujicaChk.engine.dspeed import DeepSpeedCheckpointer,DeepSpeedNECheckpointer
 from AveMujicaChk.utils import env_utils
 
 # 定义一个简单的模型
@@ -112,9 +112,10 @@ def main():
     inputs = torch.randn(8, 10, device='cuda', dtype=torch.half)
     labels = torch.randn(8, 10, device='cuda', dtype=torch.half)
 
-    Avecheck = DeepSpeedCheckpointNETEngine(model_engine, "./outputtest")
-    Avecheck._create_inter_communication_group()
-    
+    # Avecheck = DeepSpeedCheckpointNETEngine(model_engine, "./outputtest")
+    # Avecheck._create_inter_communication_group()
+    Avecheck = DeepSpeedNECheckpointer(model_engine, "./outputtest")
+    Avecheck.init_NetEngine
     # Avecheck._create_bucket_state_dict(model_engine.state_dict())
     # torch.distributed.barrier()
     # torch.cuda.synchronize()
@@ -153,8 +154,10 @@ def main():
         torch.distributed.barrier()
         torch.cuda.synchronize()
         
-        Avecheck.get_remote_save_state_dict(model_engine.state_dict())
-        print(f"{Avecheck.global_rank} <><><> output{Avecheck.bucket}")
+        #Avecheck.save_checkpoint(step=step, state_dict=model_engine.state_dict(), paths="./outputtest")
+        Avecheck.test_save_checkpoint("./outputtest")
+        # Avecheck.get_remote_save_state_dict(model_engine.state_dict())
+        # print(f"{Avecheck.global_rank} <><><> output{Avecheck.bucket}")
         # Avecheck._small_bucket_exchange_state_dict(Avecheck.bucket,numel_per_bucket=5000000,process_group=Avecheck.comm_group)
         # exchanged_tensor = Avecheck.exchange_tensor(tensor_to_exchange, process_group=Avecheck.comm_group)
 
@@ -166,6 +169,10 @@ def main():
         # 可选：保存检查点
         # MujicaCheckpointer.save_checkpoint("./outputtest")
         # model_engine.save_checkpoint("./outputtest")
+    
+    torch.cuda.synchronize()
+    torch.distributed.barrier()
+    Avecheck.netcheckpointengine.load_from_memory()
 
 if __name__ == "__main__":
     main()

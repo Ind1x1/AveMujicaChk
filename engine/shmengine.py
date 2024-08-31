@@ -166,7 +166,9 @@ class SharedMemoryEngine(object):
         _traverse_copy_to_shm(state_dict, self.meta_dict, self.shared_memory.buf)
         ckpt_conf.writing_shm = False
         #####SANVE META
+        
         self.save_meta_dict(self.meta_dict)
+        
 
         # self.metadata.set(meta_dict)
     
